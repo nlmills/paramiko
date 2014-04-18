@@ -171,7 +171,7 @@ class SSHClient (object):
 
     def connect(self, hostname, port=SSH_PORT, username=None, password=None, pkey=None,
                 key_filename=None, timeout=None, allow_agent=True, look_for_keys=True,
-                compress=False, sock=None):
+                compress=False, sock=None, hostkey=None):
         """
         Connect to an SSH server and authenticate to it.  The server's host key
         is checked against the system host keys (see `load_system_host_keys`)
@@ -185,6 +185,7 @@ class SSHClient (object):
             - The ``pkey`` or ``key_filename`` passed in (if any)
             - Any key we can find through an SSH agent
             - Any "id_rsa" or "id_dsa" key discoverable in ``~/.ssh/``
+            - Host-based authentication using the public key in ``hostkey``
             - Plain username/password auth, if a password was given
 
         If a private key requires a password to unlock it, and a password is
@@ -210,6 +211,8 @@ class SSHClient (object):
         :param socket sock:
             an open socket or socket-like object (such as a `.Channel`) to use
             for communication to the target host
+        :param hostkey:
+            the public key of the host to use for host-based authentication
 
         :raises BadHostKeyException: if the server's host key could not be
             verified
@@ -270,7 +273,7 @@ class SSHClient (object):
             key_filenames = [key_filename]
         else:
             key_filenames = key_filename
-        self._auth(username, password, pkey, key_filenames, allow_agent, look_for_keys)
+        self._auth(username, password, pkey, key_filenames, allow_agent, look_for_keys, hostkey)
 
     def close(self):
         """
@@ -354,13 +357,14 @@ class SSHClient (object):
         """
         return self._transport
 
-    def _auth(self, username, password, pkey, key_filenames, allow_agent, look_for_keys):
+    def _auth(self, username, password, pkey, key_filenames, allow_agent, look_for_keys, hostkey):
         """
         Try, in order:
 
             - The key passed in, if one was passed in.
             - Any key we can find through an SSH agent (if allowed).
             - Any "id_rsa" or "id_dsa" key discoverable in ~/.ssh/ (if allowed).
+            - Host-based authentication using the key in ``hostkey``, if given.
             - Plain username/password auth, if a password was given.
 
         (The password might be needed to unlock a private key, or for
@@ -441,6 +445,13 @@ class SSHClient (object):
                     break
                 except (SSHException, IOError) as e:
                     saved_exception = e
+
+        if not two_factor and hostkey is not None:
+            try:
+                self._transport.auth_hostbased(username, hostkey)
+                return
+            except SSHException as e:
+                saved_exception = e
 
         if password is not None:
             try:

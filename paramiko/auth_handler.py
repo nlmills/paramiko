@@ -20,6 +20,8 @@
 `.AuthHandler`
 """
 
+import getpass
+import socket
 import weakref
 from paramiko.common import cMSG_SERVICE_REQUEST, cMSG_DISCONNECT, \
     DISCONNECT_SERVICE_NOT_AVAILABLE, DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE, \
@@ -35,6 +37,7 @@ from paramiko.py3compat import bytestring
 from paramiko.ssh_exception import SSHException, AuthenticationException, \
     BadAuthenticationType, PartialAuthentication
 from paramiko.server import InteractiveQuery
+import paramiko.keysign
 
 
 class AuthHandler (object):
@@ -53,6 +56,7 @@ class AuthHandler (object):
         self.private_key = None
         self.interactive_handler = None
         self.submethods = None
+        self.hostkey = None
         # for server mode:
         self.auth_username = None
         self.auth_fail_count = 0
@@ -112,6 +116,17 @@ class AuthHandler (object):
             self._request_auth()
         finally:
             self.transport.lock.release()
+
+    def auth_hostbased(self, username, hostkey, event):
+        self.transport.lock.acquire()
+        try:
+            self.auth_event = event
+            self.auth_method = 'hostbased'
+            self.username = username
+            self.hostkey = hostkey
+            self._request_auth()
+        finally:
+            self.transport.lock.release()
     
     def abort(self):
         if self.auth_event is not None:
@@ -153,6 +168,20 @@ class AuthHandler (object):
         m.add_boolean(True)
         m.add_string(key.get_name())
         m.add_string(key)
+        return m.asbytes()
+
+    def _get_hostbased_session_blob(self, hostkey, service, username):
+        m = Message()
+        m.add_string(self.transport.session_id)
+        m.add_byte(cMSG_USERAUTH_REQUEST)
+        m.add_string(username)
+        m.add_string(service)
+        m.add_string('hostbased')
+        m.add_string(hostkey.get_name())
+        m.add_string(hostkey)
+        #TODO: find a better way to get the host name
+        m.add_string((socket.gethostname() + '.'))
+        m.add_string(getpass.getuser())
         return m.asbytes()
 
     def wait_for_response(self, event):
@@ -213,6 +242,16 @@ class AuthHandler (object):
                 m.add_string(self.submethods)
             elif self.auth_method == 'none':
                 pass
+            elif self.auth_method == 'hostbased':
+                m.add_string(self.hostkey.get_name())
+                m.add_string(self.hostkey)
+                #TODO: find a better way to get the host name
+                m.add_string((socket.gethostname() + '.'))
+                m.add_string(getpass.getuser())
+                # this blob must be the same as the message (minus the sig)
+                blob = self._get_hostbased_session_blob(self.hostkey, 'ssh-connection', self.username)
+                sig = paramiko.keysign.Keysign().sign(blob)
+                m.add_string(sig)
             else:
                 raise SSHException('Unknown auth method "%s"' % self.auth_method)
             self.transport._send_message(m)

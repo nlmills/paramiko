@@ -313,8 +313,9 @@ class Transport (threading.Thread):
         Otherwise an SSHException is raised.
 
         After a successful negotiation, you will usually want to authenticate,
-        calling `auth_password <Transport.auth_password>` or
-        `auth_publickey <Transport.auth_publickey>`.
+        calling `auth_password <Transport.auth_password>`,
+        `auth_publickey <Transport.auth_publickey>`, or
+        `auth_hostbased` <Transport.auth_hostbased>.
 
         .. note:: `connect` is a simpler method for connecting as a client.
 
@@ -1171,6 +1172,21 @@ class Transport (threading.Thread):
         self.auth_handler = AuthHandler(self)
         self.auth_handler.auth_interactive(username, handler, my_event, submethods)
         return self.auth_handler.wait_for_response(my_event)
+
+    def auth_hostbased(self, username, hostkey, event=None):
+        if (not self.active) or (not self.initial_kex_done):
+            # we should never try to authenticate unless we're on a secure link
+            raise SSHException('No existing session')
+        if event is None:
+            my_event = threading.Event()
+        else:
+            my_event = event
+        self.auth_handler = AuthHandler(self)
+        self.auth_handler.auth_hostbased(username, hostkey, my_event)
+        if event is not None:
+            return []
+        else:
+            return self.auth_handler.wait_for_response(my_event)
 
     def set_log_channel(self, name):
         """
