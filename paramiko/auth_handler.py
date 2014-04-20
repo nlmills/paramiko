@@ -179,10 +179,14 @@ class AuthHandler (object):
         m.add_string('hostbased')
         m.add_string(hostkey.get_name())
         m.add_string(hostkey)
-        #TODO: find a better way to get the host name
-        m.add_string((socket.gethostname() + '.'))
+        m.add_string(self._get_local_name() + '.')
         m.add_string(getpass.getuser())
         return m.asbytes()
+
+    def _get_local_name(self):
+        addr = self.transport.sock.getsockname()
+        names = socket.getnameinfo(addr, socket.NI_NAMEREQD)
+        return names[0]
 
     def wait_for_response(self, event):
         while True:
@@ -245,12 +249,11 @@ class AuthHandler (object):
             elif self.auth_method == 'hostbased':
                 m.add_string(self.hostkey.get_name())
                 m.add_string(self.hostkey)
-                #TODO: find a better way to get the host name
-                m.add_string((socket.gethostname() + '.'))
+                m.add_string(self._get_local_name() + '.')
                 m.add_string(getpass.getuser())
                 # this blob must be the same as the message (minus the sig)
                 blob = self._get_hostbased_session_blob(self.hostkey, 'ssh-connection', self.username)
-                sig = paramiko.keysign.Keysign().sign(blob)
+                sig = paramiko.keysign.Keysign().sign(self.transport.sock, blob)
                 m.add_string(sig)
             else:
                 raise SSHException('Unknown auth method "%s"' % self.auth_method)

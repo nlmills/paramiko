@@ -41,7 +41,7 @@ class Keysign(object):
             raise Exception('no ssh-keysign program found')
         self._keysign_path = match
 
-    def sign(self, blob):
+    def sign(self, sock, blob):
         version = paramiko.py3compat.byte_chr(2)
 
         ksproc = subprocess.Popen([self._keysign_path],
@@ -49,7 +49,7 @@ class Keysign(object):
                                   stdout=subprocess.PIPE)
         request = paramiko.Message()
         request.add_byte(version)
-        request.add_int(ksproc.stdin.fileno())
+        request.add_int(sock.fileno())
         request.add_string(blob)
         reqm = paramiko.Message()
         reqm.add_string(request)
